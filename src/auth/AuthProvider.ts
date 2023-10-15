@@ -1,19 +1,23 @@
-const msal = require('@azure/msal-node');
-const axios = require('axios');
+import msal, { AuthorizationCodeRequest, AuthorizationUrlRequest } from '@azure/msal-node';
+import axios from 'axios';
+import {Request, Response, NextFunction} from 'express';
 
-const { msalConfig } = require('../authConfig');
+// const { msalConfig } = require('../authConfig');
+import { appConfig, configType } from '../authConfig';
+const {msalConfig} = appConfig
+
 
 class AuthProvider {
-    msalConfig;
-    cryptoProvider;
+    msalConfig: configType;
+    cryptoProvider: msal.CryptoProvider;
 
-    constructor(msalConfig) {
+    constructor(msalConfig: configType) {
         this.msalConfig = msalConfig
         this.cryptoProvider = new msal.CryptoProvider();
     };
 
-    login(options = {}) {
-        return async (req, res, next) => {
+    login(options = {} as unknown as {successRedirect: string, scopes: string[], redirectUri: string}) {
+        return async (req: Request, res: Response, next: NextFunction) => {
 
             /**
              * MSAL Node library allows you to pass your custom state as state parameter in the Request object.
@@ -35,7 +39,7 @@ class AuthProvider {
                  */
                 scopes: options.scopes || [],
                 redirectUri: options.redirectUri,
-            };
+            } as unknown as AuthorizationUrlRequest;
 
             const authCodeRequestParams = {
                 state: state,
@@ -46,7 +50,7 @@ class AuthProvider {
                  */
                 scopes: options.scopes || [],
                 redirectUri: options.redirectUri,
-            };
+            } as unknown as AuthorizationCodeRequest;
 
             /**
              * If the current msal configuration does not have cloudDiscoveryMetadata or authorityMetadata, we will 
@@ -76,8 +80,8 @@ class AuthProvider {
         };
     }
 
-    acquireToken(options = {}) {
-        return async (req, res, next) => {
+    acquireToken(options: any = {}) {
+        return async (req: Request, res: Response, next: NextFunction) => {
             try {
                 const msalInstance = this.getMsalInstance(this.msalConfig);
 
@@ -91,7 +95,7 @@ class AuthProvider {
                 }
 
                 const tokenResponse = await msalInstance.acquireTokenSilent({
-                    account: req.session.account,
+                    account: req.session?.account!,
                     scopes: options.scopes || [],
                 });
 
@@ -103,7 +107,7 @@ class AuthProvider {
                 req.session.tokenCache = msalInstance.getTokenCache().serialize();
                 req.session.accessToken = tokenResponse.accessToken;
                 req.session.idToken = tokenResponse.idToken;
-                req.session.account = tokenResponse.account;
+                req.session.account = tokenResponse.account!;
 
                 res.redirect(options.successRedirect);
             } catch (error) {
@@ -121,15 +125,15 @@ class AuthProvider {
     }
 
     handleRedirect(options = {}) {
-        return async (req, res, next) => {
+        return async (req: Request, res: Response, next: NextFunction) => {
             if (!req.body || !req.body.state) {
                 return next(new Error('Error: response not found'));
             }
 
             const authCodeRequest = {
-                ...req.session.authCodeRequest,
+                ...req.session.authCodeRequest!,
                 code: req.body.code,
-                codeVerifier: req.session.pkceCodes.verifier, //???
+                codeVerifier: req.session.pkceCodes!.verifier, //???
             };
 
             try {
@@ -143,7 +147,7 @@ class AuthProvider {
 
                 req.session.tokenCache = msalInstance.getTokenCache().serialize();
                 req.session.idToken = tokenResponse.idToken;
-                req.session.account = tokenResponse.account;
+                req.session.account = tokenResponse.account!;
                 req.session.isAuthenticated = true;
 
                 const state = JSON.parse(this.cryptoProvider.base64Decode(req.body.state));
@@ -154,8 +158,8 @@ class AuthProvider {
         }
     }
 
-    logout(options = {}) {
-        return (req, res, next) => {
+    logout(options: any = {}) {
+        return (req: Request, res: Response, next: NextFunction) => {
 
             /**
              * Construct a logout URI and redirect the user to end the
@@ -179,7 +183,7 @@ class AuthProvider {
      * @param msalConfig: MSAL Node Configuration object 
      * @returns 
      */
-    getMsalInstance(msalConfig) {
+    getMsalInstance(msalConfig: configType) {
         return new msal.ConfidentialClientApplication(msalConfig);
     }
 
@@ -192,8 +196,8 @@ class AuthProvider {
      * @param authCodeUrlRequestParams: parameters for requesting an auth code url
      * @param authCodeRequestParams: parameters for requesting tokens using auth code
      */
-    redirectToAuthCodeUrl(authCodeUrlRequestParams, authCodeRequestParams, msalInstance) {
-        return async (req, res, next) => {
+    redirectToAuthCodeUrl(authCodeUrlRequestParams: AuthorizationUrlRequest, authCodeRequestParams: AuthorizationCodeRequest, msalInstance: msal.ConfidentialClientApplication) {
+        return async (req: Request, res: Response, next: NextFunction) => {
             // Generate PKCE Codes before starting the authorization flow
             const { verifier, challenge } = await this.cryptoProvider.generatePkceCodes();
 
@@ -223,7 +227,7 @@ class AuthProvider {
             };
 
             try {
-                const authCodeUrlResponse = await msalInstance.getAuthCodeUrl(req.session.authCodeUrlRequest);
+                const authCodeUrlResponse = await msalInstance.getAuthCodeUrl(req.session.authCodeUrlRequest!);
                 res.redirect(authCodeUrlResponse);
             } catch (error) {
                 next(error);
@@ -235,7 +239,7 @@ class AuthProvider {
      * Retrieves cloud discovery metadata from the /discovery/instance endpoint
      * @returns 
      */
-    async getCloudDiscoveryMetadata(authority) {
+    async getCloudDiscoveryMetadata(authority: string) {
         const endpoint = 'https://login.microsoftonline.com/common/discovery/instance';
 
         try {
@@ -256,7 +260,7 @@ class AuthProvider {
      * Retrieves oidc metadata from the openid endpoint
      * @returns
      */
-    async getAuthorityMetadata(authority) {
+    async getAuthorityMetadata(authority: string) {
         const endpoint = `${authority}/v2.0/.well-known/openid-configuration`;
 
         try {
@@ -270,4 +274,5 @@ class AuthProvider {
 
 const authProvider = new AuthProvider(msalConfig);
 
-module.exports = authProvider;
+// module.exports = authProvider;
+export default authProvider;
